@@ -263,37 +263,60 @@
                 });
                 
                 // IMPORTANT: Use a different authentication approach
-                loginButton.addEventListener('click', function() {
-                    authAttemptCount++;
-                    logDebug(`Authentication attempt #${authAttemptCount}`);
-                    status.textContent = "Authenticating...";
-                    
-                    // Disable login button during authentication
-                    loginButton.disabled = true;
-                    
-                    // We use a promise-first approach with explicit error handling
-                    const authPromise = new Promise((resolve, reject) => {
-                        try {
-                            // Set a timeout
-                            const timeoutId = setTimeout(() => {
-                                reject(new Error("Authentication timed out"));
-                            }, 15000);
-                            
-                            // Try to authenticate
-                            logDebug("Starting authentication...");
-                            Pi.authenticate(['username'], onIncompletePaymentFound)
-                                .then(auth => {
-                                    clearTimeout(timeoutId);
-                                    resolve(auth);
-                                })
-                                .catch(err => {
-                                    clearTimeout(timeoutId);
-                                    reject(err);
-                                });
-                        } catch (err) {
-                            reject(err);
-                        }
-                    });
+                loginButton.addEventListener('click', async function() {
+    authAttemptCount++;
+    logDebug(`Authentication attempt #${authAttemptCount}`);
+    status.textContent = "Authenticating...";
+    
+    // Disable login button during authentication
+    loginButton.disabled = true;
+
+    try {
+        // Define authentication with a longer timeout (30s) and minimal scope for testing
+        const authResult = await new Promise((resolve, reject) => {
+            const timeoutId = setTimeout(() => {
+                reject(new Error("Authentication timed out after 30s"));
+            }, 30000); // Increased from 15s to 30s
+
+            logDebug("Starting authentication with scope: ['username']");
+            Pi.authenticate(['username'], onIncompletePaymentFound)
+                .then(auth => {
+                    clearTimeout(timeoutId);
+                    logDebug("Raw auth response: " + JSON.stringify(auth));
+                    resolve(auth);
+                })
+                .catch(err => {
+                    clearTimeout(timeoutId);
+                    reject(new Error(`Authentication failed: ${err.message}`));
+                });
+        });
+
+        // Authentication succeeded
+        logDebug("Authentication succeeded: " + JSON.stringify(authResult));
+        user = authResult;
+        authenticatedUser = true;
+
+        // Update UI
+        loginButton.style.display = 'none';
+        userData.style.display = 'block';
+        usernameDisplay.textContent = user.username;
+        status.textContent = 'Select a square to place your bet.';
+    } catch (error) {
+        logDebug(`Authentication error: ${error.message}`);
+        status.textContent = `Authentication failed: ${error.message}. Try again.`;
+        loginButton.disabled = false;
+
+        // Reinitialize SDK after failure with the loadPiSDK function
+        try {
+            const refreshedPi = await loadPiSDK(1, 0); // Single attempt, no delay
+            Pi = refreshedPi; // Update the global Pi reference
+            logDebug("SDK reinitialized after failed auth");
+        } catch (err) {
+            logDebug("Failed to reinitialize SDK: " + err.message);
+            status.textContent += " SDK reinitialization failed.";
+        }
+    }
+});
                     
                     authPromise.then(authResult => {
                         logDebug("Authentication succeeded: " + JSON.stringify(authResult));
