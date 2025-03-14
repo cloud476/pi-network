@@ -137,6 +137,21 @@
             cursor: pointer;
             margin-bottom: 15px;
         }
+        
+        #debug-info {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 5px;
+            text-align: left;
+            max-width: 500px;
+            margin-left: auto;
+            margin-right: auto;
+            font-family: monospace;
+            font-size: 12px;
+            display: none;
+        }
     </style>
 </head>
 <body>
@@ -159,27 +174,57 @@
         <h2>Latest Result</h2>
         <p id="winning-number">Waiting for today's block...</p>
     </div>
+    
+    <div id="debug-info">
+        <p>Debug Information:</p>
+        <ul id="debug-log"></ul>
+    </div>
 
     <!-- Pi Network SDK -->
     <script src="https://sdk.minepi.com/pi-sdk.js"></script>
     
     <script>
         document.addEventListener('DOMContentLoaded', function() {
+            // Debug logging functionality
+            const debugLog = document.getElementById('debug-log');
+            const debugInfo = document.getElementById('debug-info');
+            
+            function logDebug(message, showOnScreen = false) {
+                console.log(message);
+                
+                if (showOnScreen) {
+                    debugInfo.style.display = 'block';
+                    const logItem = document.createElement('li');
+                    logItem.textContent = message;
+                    debugLog.appendChild(logItem);
+                }
+            }
+            
+            // Show debug panel by default in development
+            debugInfo.style.display = 'block';
+            
             // Check if Pi is available
             if (typeof window.Pi === 'undefined') {
-                console.error("Pi SDK not loaded!");
+                logDebug("ERROR: Pi SDK not loaded!", true);
                 document.getElementById('status').textContent = "Pi SDK not loaded. Please try again or reload the page.";
                 return;
             }
             
-            console.log("Pi SDK detected, initializing...");
+            logDebug("Pi SDK detected, initializing...", true);
             
             // Pi SDK initialization
             const Pi = window.Pi;
-            Pi.init({ version: "2.0", sandbox: true }); // Use sandbox mode for testing
+            try {
+                Pi.init({ version: "2.0", sandbox: true }); // Use sandbox mode for testing
+                logDebug("Pi SDK initialized successfully", true);
+            } catch (error) {
+                logDebug("ERROR: Pi SDK initialization failed: " + error.message, true);
+                document.getElementById('status').textContent = "Pi SDK initialization failed. Please try again.";
+                return;
+            }
             
-            console.log("Pi SDK available:", !!window.Pi);
-            console.log("Pi authentication method available:", !!(window.Pi && Pi.authenticate));
+            logDebug("Pi SDK available: " + !!window.Pi, true);
+            logDebug("Pi authentication method available: " + !!(window.Pi && Pi.authenticate), true);
             
             // User authentication variables
             let user = null;
@@ -198,38 +243,56 @@
             let bets = Array(100).fill(0); // Tracks bets per square
             
             // Authentication with Pi Network
-            loginButton.addEventListener('click', async function() {
-                console.log("Login button clicked");
+            loginButton.addEventListener('click', function() {
+                logDebug("Login button clicked", true);
                 status.textContent = "Authenticating...";
                 
+                // Set a timeout to detect if authentication is taking too long
+                const authTimeout = setTimeout(() => {
+                    logDebug("Authentication timed out after 15 seconds", true);
+                    status.textContent = "Authentication timed out. Please try again.";
+                }, 15000);
+                
                 try {
+                    logDebug("Calling Pi.authenticate...", true);
+                    
                     // Authenticate the user
-                    user = await Pi.authenticate(['username'], onIncompletePaymentFound);
-                    console.log("Authentication response:", user);
-                    
-                    authenticatedUser = true;
-                    
-                    // Update UI to show logged in state
-                    loginButton.style.display = 'none';
-                    userData.style.display = 'block';
-                    usernameDisplay.textContent = user.username;
-                    status.textContent = 'Select a square to place your bet.';
-                    
-                    console.log(`User authenticated: ${user.username}`);
+                    Pi.authenticate(['username'], onIncompletePaymentFound)
+                        .then(function(auth) {
+                            clearTimeout(authTimeout);
+                            logDebug("Authentication successful: " + JSON.stringify(auth), true);
+                            
+                            user = auth;
+                            authenticatedUser = true;
+                            
+                            // Update UI to show logged in state
+                            loginButton.style.display = 'none';
+                            userData.style.display = 'block';
+                            usernameDisplay.textContent = user.username;
+                            status.textContent = 'Select a square to place your bet.';
+                            
+                            logDebug(`User authenticated: ${user.username}`, true);
+                        })
+                        .catch(function(error) {
+                            clearTimeout(authTimeout);
+                            logDebug('Authentication error: ' + (error.message || JSON.stringify(error)), true);
+                            status.textContent = 'Authentication failed: ' + (error.message || "Unknown error");
+                        });
                 } catch (error) {
-                    console.error('Authentication error:', error);
-                    status.textContent = 'Authentication failed: ' + (error.message || "Unknown error");
+                    clearTimeout(authTimeout);
+                    logDebug('Error calling authenticate: ' + (error.message || JSON.stringify(error)), true);
+                    status.textContent = 'Error starting authentication: ' + (error.message || "Unknown error");
                 }
             });
             
             // Handle incomplete payments
             function onIncompletePaymentFound(payment) {
-                console.log('Incomplete payment found:', payment);
+                logDebug('Incomplete payment found: ' + JSON.stringify(payment), true);
                 // You would typically complete or cancel the payment here
                 return Pi.Payment.complete(payment.identifier).then(completedPayment => {
-                    console.log('Payment completed:', completedPayment);
+                    logDebug('Payment completed: ' + JSON.stringify(completedPayment), true);
                 }).catch(error => {
-                    console.error('Error completing payment:', error);
+                    logDebug('Error completing payment: ' + (error.message || JSON.stringify(error)), true);
                 });
             }
             
@@ -264,6 +327,7 @@
                 if (selectedSquare === null || !authenticatedUser) return;
                 
                 try {
+                    logDebug("Creating payment...", true);
                     // Create a payment
                     const payment = await Pi.createPayment({
                         amount: 1,
@@ -272,27 +336,27 @@
                     }, {
                         onReadyForServerApproval: function(paymentId) {
                             // Here you would call your backend to approve the payment
-                            console.log('Ready for server approval with payment ID:', paymentId);
+                            logDebug('Ready for server approval with payment ID: ' + paymentId, true);
                             // Simulate server approval for sandbox testing
                             status.textContent = 'Payment being processed...';
                         },
                         onReadyForServerCompletion: function(paymentId, txid) {
                             // Here you would call your backend to complete the payment
-                            console.log('Ready for server completion with payment ID:', paymentId, 'and txid:', txid);
+                            logDebug('Ready for server completion with payment ID: ' + paymentId + ' and txid: ' + txid, true);
                             // Simulate server completion for sandbox testing
                             processSuccessfulBet();
                         },
                         onCancel: function(paymentId) {
-                            console.log('Payment cancelled with ID:', paymentId);
+                            logDebug('Payment cancelled with ID: ' + paymentId, true);
                             status.textContent = 'Payment was cancelled.';
                         },
                         onError: function(error, payment) {
-                            console.error('Payment error:', error);
+                            logDebug('Payment error: ' + (error.message || JSON.stringify(error)), true);
                             status.textContent = 'Payment error: ' + error.message;
                         }
                     });
                 } catch (error) {
-                    console.error('Error creating payment:', error);
+                    logDebug('Error creating payment: ' + (error.message || JSON.stringify(error)), true);
                     status.textContent = 'Error creating payment: ' + error.message;
                 }
             });
@@ -305,7 +369,7 @@
                 confirmButton.disabled = true;
                 
                 // In a real app, you would store this bet in your database
-                console.log(`Bet of 1 Pi placed on square ${selectedSquare} by user ${user.username}`);
+                logDebug(`Bet of 1 Pi placed on square ${selectedSquare} by user ${user.username}`, true);
             }
 
             // Simulate daily result (in production, this would come from your backend)
@@ -319,6 +383,23 @@
             
             // Show a mock result after 2 seconds
             setTimeout(updateResult, 2000);
+            
+            // Add a special button to force refresh the SDK (for testing)
+            const refreshButton = document.createElement('button');
+            refreshButton.textContent = 'Refresh SDK Connection';
+            refreshButton.style.marginTop = '20px';
+            refreshButton.style.padding = '5px';
+            refreshButton.addEventListener('click', function() {
+                logDebug("Manually refreshing SDK connection...", true);
+                try {
+                    Pi.init({ version: "2.0", sandbox: true });
+                    logDebug("SDK refreshed successfully", true);
+                    status.textContent = "SDK refreshed. Try signing in again.";
+                } catch (error) {
+                    logDebug("SDK refresh failed: " + error.message, true);
+                }
+            });
+            document.body.appendChild(refreshButton);
         });
     </script>
 </body>
