@@ -164,10 +164,19 @@
     <script src="https://sdk.minepi.com/pi-sdk.js"></script>
     
     <script>
-        // Pi SDK initialization
-        const Pi = window.Pi;
-        Pi.init({ version: "2.0", sandbox: true }); // Use sandbox mode for testing
-        
+        // Pi SDK initialization with load check
+        function initializePiSDK() {
+            if (window.Pi) {
+                const Pi = window.Pi;
+                Pi.init({ version: "2.0", sandbox: true });
+                console.log("Pi SDK initialized successfully");
+            } else {
+                console.error("Pi SDK not loaded yet. Retrying...");
+                setTimeout(initializePiSDK, 500); // Retry after 500ms
+            }
+        }
+        window.addEventListener('load', initializePiSDK);
+
         // User authentication variables
         let user = null;
         let authenticatedUser = false;
@@ -185,9 +194,11 @@
         let bets = Array(100).fill(0); // Tracks bets per square
         
         // Authentication with Pi Network
+        console.log("Attaching event listener to login button...");
         loginButton.addEventListener('click', async function() {
+            console.log("Login button clicked!");
             try {
-                // Authenticate the user
+                console.log("Attempting Pi authentication...");
                 user = await Pi.authenticate(['username'], onIncompletePaymentFound);
                 authenticatedUser = true;
                 
@@ -197,10 +208,10 @@
                 usernameDisplay.textContent = user.username;
                 status.textContent = 'Select a square to place your bet.';
                 
-                console.log(`User authenticated: ${user.username}`);
+                console.log(`User authenticated successfully: ${user.username}`);
             } catch (error) {
-                console.error('Authentication error:', error);
-                status.textContent = 'Authentication failed. Please try again.';
+                console.error('Authentication error details:', error);
+                status.textContent = `Authentication failed: ${error.message || 'Unknown error'}. Please try again.`;
             }
         });
         
@@ -253,15 +264,11 @@
                     metadata: { squareNumber: selectedSquare }
                 }, {
                     onReadyForServerApproval: function(paymentId) {
-                        // Here you would call your backend to approve the payment
                         console.log('Ready for server approval with payment ID:', paymentId);
-                        // Simulate server approval for sandbox testing
                         status.textContent = 'Payment being processed...';
                     },
                     onReadyForServerCompletion: function(paymentId, txid) {
-                        // Here you would call your backend to complete the payment
                         console.log('Ready for server completion with payment ID:', paymentId, 'and txid:', txid);
-                        // Simulate server completion for sandbox testing
                         processSuccessfulBet();
                     },
                     onCancel: function(paymentId) {
@@ -286,16 +293,12 @@
             status.textContent = `Bet placed on ${selectedSquare < 10 ? `0${selectedSquare}` : selectedSquare}!`;
             confirmButton.disabled = true;
             
-            // In a real app, you would store this bet in your database
             console.log(`Bet of 1 Pi placed on square ${selectedSquare} by user ${user.username}`);
         }
 
         // Simulate daily result (in production, this would come from your backend)
         function updateResult() {
-            // For sandbox testing, use a random number
             const mockWinningNumber = Math.floor(Math.random() * 100);
-            
-            // In production, this would be based on blockchain data
             winningNumberDisplay.textContent = `Winning Square: ${mockWinningNumber < 10 ? `0${mockWinningNumber}` : mockWinningNumber}`;
         }
         
