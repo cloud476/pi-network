@@ -267,47 +267,30 @@
     authAttemptCount++;
     logDebug(`Authentication attempt #${authAttemptCount}`);
     status.textContent = "Authenticating...";
+    
+    // Disable login button during authentication
     loginButton.disabled = true;
 
-    const maxRetries = 3;
-    let attempt = 0;
+    try {
+        // Define authentication with a longer timeout (30s) and minimal scope for testing
+        const authResult = await new Promise((resolve, reject) => {
+            const timeoutId = setTimeout(() => {
+                reject(new Error("Authentication timed out after 30s"));
+            }, 30000); // Increased from 15s to 30s
 
-    while (attempt < maxRetries) {
-        try {
-            const authResult = await new Promise((resolve, reject) => {
-                const timeoutId = setTimeout(() => reject(new Error("Authentication timed out")), 30000);
-                Pi.authenticate(['username', 'payments'], onIncompletePaymentFound)
-                    .then(auth => {
-                        clearTimeout(timeoutId);
-                        resolve(auth);
-                    })
-                    .catch(err => {
-                        clearTimeout(timeoutId);
-                        reject(err);
-                    });
-            });
+            logDebug("Starting authentication with scope: ['username']");
+            Pi.authenticate(['username'], onIncompletePaymentFound)
+                .then(auth => {
+                    clearTimeout(timeoutId);
+                    logDebug("Raw auth response: " + JSON.stringify(auth));
+                    resolve(auth);
+                })
+                .catch(err => {
+                    clearTimeout(timeoutId);
+                    reject(new Error(`Authentication failed: ${err.message}`));
+                });
+        });
 
-            user = authResult;
-            authenticatedUser = true;
-            loginButton.style.display = 'none';
-            userData.style.display = 'block';
-            usernameDisplay.textContent = user.username;
-            status.textContent = 'Select a square to place your bet.';
-            return;
-        } catch (error) {
-            attempt++;
-            logDebug(`Auth attempt ${attempt} failed: ${error.message}`);
-            if (attempt === maxRetries) {
-                status.textContent = "Authentication failed after retries. Try again or refresh SDK.";
-                loginButton.disabled = false;
-                reinitializeSDK();
-            } else {
-                status.textContent = `Retrying authentication (${attempt}/${maxRetries})...`;
-                await new Promise(resolve => setTimeout(resolve, 1000));
-            }
-        }
-    }
-});
         // Authentication succeeded
         logDebug("Authentication succeeded: " + JSON.stringify(authResult));
         user = authResult;
