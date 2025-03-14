@@ -119,303 +119,68 @@
             font-size: 16px;
             color: #e74c3c;
         }
-        
-        #user-info {
-            margin: 10px 0;
-            padding: 8px;
-            background-color: #fff;
-            border-radius: 8px;
-            display: inline-block;
-        }
-        
-        #login-button {
-            padding: 8px 16px;
-            background-color: #9b59b6;
-            color: white;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-            margin-bottom: 15px;
-        }
-        
-        #debug-info {
-            margin-top: 20px;
-            padding: 10px;
-            background-color: #f8f9fa;
-            border: 1px solid #e9ecef;
-            border-radius: 5px;
-            text-align: left;
-            max-width: 500px;
-            margin-left: auto;
-            margin-right: auto;
-            font-family: monospace;
-            font-size: 12px;
-        }
-        
-        .action-buttons {
-            margin-top: 20px;
-        }
-        
-        .action-buttons button {
-            margin: 0 5px;
-            padding: 5px 10px;
-            background-color: #6c5ce7;
-            color: white;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-        }
     </style>
 </head>
 <body>
     <h1>Pi Squares Game</h1>
     <p>Pick a square and bet Pi! Winner based on the last block of the day.</p>
-    
-    <div id="user-info">
-        <button id="login-button">Sign in with Pi</button>
-        <div id="user-data" style="display:none;">
-            Logged in as: <span id="username">Not logged in</span>
-        </div>
-    </div>
-    
     <div id="squares-grid"></div>
     <div id="bet-controls">
         <button id="confirm-bet" disabled>Confirm Bet (1 Pi)</button>
-        <span id="status">Sign in and select a square to place your bet.</span>
+        <span id="status">Select a square to place your bet.</span>
     </div>
     <div id="results">
         <h2>Latest Result</h2>
         <p id="winning-number">Waiting for today's block...</p>
     </div>
-    
-    <div class="action-buttons">
-        <button id="debug-toggle">Toggle Debug Info</button>
-        <button id="sdk-refresh">Refresh SDK</button>
-    </div>
-    
-    <div id="debug-info" style="display:none;">
-        <p>Debug Information:</p>
-        <ul id="debug-log"></ul>
-    </div>
 
-    <!-- Pi Network SDK -->
-    <script src="https://sdk.minepi.com/pi-sdk.js"></script>
-    
     <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            // Debug tools
-            const debugLog = document.getElementById('debug-log');
-            const debugInfo = document.getElementById('debug-info');
-            const debugToggle = document.getElementById('debug-toggle');
-            const sdkRefresh = document.getElementById('sdk-refresh');
-            
-            debugToggle.addEventListener('click', function() {
-                debugInfo.style.display = debugInfo.style.display === 'none' ? 'block' : 'none';
-            });
-            
-            // Debug logging functionality
-            function logDebug(message) {
-                console.log(message);
-                const logItem = document.createElement('li');
-                logItem.textContent = new Date().toLocaleTimeString() + ': ' + message;
-                debugLog.appendChild(logItem);
+        // Initialize game state
+        const grid = document.getElementById('squares-grid');
+        const status = document.getElementById('status');
+        const confirmButton = document.getElementById('confirm-bet');
+        const winningNumberDisplay = document.getElementById('winning-number');
+        let selectedSquare = null;
+        let bets = Array(100).fill(0); // Tracks bets per square (mock data for now)
+
+        // Generate the 10x10 grid
+        for (let i = 0; i < 100; i++) {
+            const square = document.createElement('div');
+            square.className = 'square';
+            square.dataset.number = i;
+            square.innerHTML = `${i < 10 ? `0${i}` : i}<span class="bet-count">${bets[i]}</span>`;
+            square.addEventListener('click', () => selectSquare(i));
+            grid.appendChild(square);
+        }
+
+        // Handle square selection
+        function selectSquare(number) {
+            if (selectedSquare !== null) {
+                document.querySelector(`.square[data-number="${selectedSquare}"]`).classList.remove('selected');
             }
-            
-            // Global variables
-            let user = null;
-            let authenticatedUser = false;
-            let selectedSquare = null;
-            let bets = Array(100).fill(0); // Tracks bets per square
-            let authAttemptCount = 0;
-            
-            // DOM elements
-            const grid = document.getElementById('squares-grid');
-            const status = document.getElementById('status');
-            const confirmButton = document.getElementById('confirm-bet');
-            const winningNumberDisplay = document.getElementById('winning-number');
-            const loginButton = document.getElementById('login-button');
-            const userData = document.getElementById('user-data');
-            const usernameDisplay = document.getElementById('username');
-            
-            // Initialize Pi SDK
-            try {
-                if (typeof window.Pi === 'undefined') {
-                    logDebug("ERROR: Pi SDK not loaded!");
-                    status.textContent = "Pi SDK not loaded. Please try again or reload the page.";
-                    return;
-                }
-                
-                logDebug("Pi SDK detected, initializing...");
-                const Pi = window.Pi;
-                Pi.init({ version: "2.0", sandbox: true });
-                logDebug("Pi SDK initialized successfully");
-                
-                // SDK refresh button
-                sdkRefresh.addEventListener('click', function() {
-                    logDebug("Manually refreshing SDK...");
-                    try {
-                        Pi.init({ version: "2.0", sandbox: true });
-                        logDebug("SDK refreshed successfully");
-                        status.textContent = "SDK refreshed. Try signing in again.";
-                    } catch (error) {
-                        logDebug("SDK refresh error: " + error.message);
-                    }
-                });
-                
-                // IMPORTANT: Use a different authentication approach
-                loginButton.addEventListener('click', function() {
-                    authAttemptCount++;
-                    logDebug(`Authentication attempt #${authAttemptCount}`);
-                    status.textContent = "Authenticating...";
-                    
-                    // Disable login button during authentication
-                    loginButton.disabled = true;
-                    
-                    // We use a promise-first approach with explicit error handling
-                    const authPromise = new Promise((resolve, reject) => {
-                        try {
-                            // Set a timeout
-                            const timeoutId = setTimeout(() => {
-                                reject(new Error("Authentication timed out"));
-                            }, 15000);
-                            
-                            // Try to authenticate
-                            logDebug("Starting authentication...");
-                            Pi.authenticate(['username'], onIncompletePaymentFound)
-                                .then(auth => {
-                                    clearTimeout(timeoutId);
-                                    resolve(auth);
-                                })
-                                .catch(err => {
-                                    clearTimeout(timeoutId);
-                                    reject(err);
-                                });
-                        } catch (err) {
-                            reject(err);
-                        }
-                    });
-                    
-                    authPromise.then(authResult => {
-                        logDebug("Authentication succeeded: " + JSON.stringify(authResult));
-                        user = authResult;
-                        authenticatedUser = true;
-                        
-                        // Update UI to show logged in state
-                        loginButton.style.display = 'none';
-                        userData.style.display = 'block';
-                        usernameDisplay.textContent = user.username;
-                        status.textContent = 'Select a square to place your bet.';
-                    }).catch(error => {
-                        logDebug("Authentication error: " + error.message);
-                        status.textContent = "Authentication failed. Please try again.";
-                        loginButton.disabled = false;
-                        
-                        // IMPORTANT FIX: Sometimes Pi SDK needs to be reinitialized after failed auth
-                        try {
-                            Pi.init({ version: "2.0", sandbox: true });
-                            logDebug("SDK reinitialized after failed auth");
-                        } catch (err) {
-                            logDebug("Failed to reinitialize SDK: " + err.message);
-                        }
-                    });
-                });
-                
-                // Handle incomplete payments
-                function onIncompletePaymentFound(payment) {
-                    logDebug('Incomplete payment found: ' + JSON.stringify(payment));
-                    return Pi.Payment.complete(payment.identifier).then(completedPayment => {
-                        logDebug('Payment completed: ' + JSON.stringify(completedPayment));
-                    }).catch(error => {
-                        logDebug('Error completing payment: ' + error.message);
-                    });
-                }
-                
-                // Generate the 10x10 grid
-                for (let i = 0; i < 100; i++) {
-                    const square = document.createElement('div');
-                    square.className = 'square';
-                    square.dataset.number = i;
-                    square.innerHTML = `${i < 10 ? `0${i}` : i}<span class="bet-count">${bets[i]}</span>`;
-                    square.addEventListener('click', () => selectSquare(i));
-                    grid.appendChild(square);
-                }
+            selectedSquare = number;
+            document.querySelector(`.square[data-number="${number}"]`).classList.add('selected');
+            status.textContent = `Square ${number < 10 ? `0${number}` : number} selected.`;
+            confirmButton.disabled = false;
+        }
 
-                // Handle square selection
-                function selectSquare(number) {
-                    if (!authenticatedUser) {
-                        status.textContent = 'Please sign in first to place bets.';
-                        return;
-                    }
-                    
-                    if (selectedSquare !== null) {
-                        document.querySelector(`.square[data-number="${selectedSquare}"]`).classList.remove('selected');
-                    }
-                    selectedSquare = number;
-                    document.querySelector(`.square[data-number="${number}"]`).classList.add('selected');
-                    status.textContent = `Square ${number < 10 ? `0${number}` : number} selected.`;
-                    confirmButton.disabled = false;
-                }
-
-                // Confirm bet with Pi payment
-                confirmButton.addEventListener('click', function() {
-                    if (selectedSquare === null || !authenticatedUser) return;
-                    
-                    logDebug("Creating payment...");
-                    status.textContent = "Creating payment...";
-                    
-                    try {
-                        Pi.createPayment({
-                            amount: 1,
-                            memo: `Bet on square ${selectedSquare}`,
-                            metadata: { squareNumber: selectedSquare }
-                        }, {
-                            onReadyForServerApproval: function(paymentId) {
-                                logDebug('Ready for server approval with payment ID: ' + paymentId);
-                                status.textContent = 'Payment being processed...';
-                            },
-                            onReadyForServerCompletion: function(paymentId, txid) {
-                                logDebug('Ready for server completion with payment ID: ' + paymentId);
-                                processSuccessfulBet();
-                            },
-                            onCancel: function(paymentId) {
-                                logDebug('Payment cancelled with ID: ' + paymentId);
-                                status.textContent = 'Payment was cancelled.';
-                            },
-                            onError: function(error, payment) {
-                                logDebug('Payment error: ' + error.message);
-                                status.textContent = 'Payment error: ' + error.message;
-                            }
-                        });
-                    } catch (error) {
-                        logDebug('Error creating payment: ' + error.message);
-                        status.textContent = 'Error creating payment: ' + error.message;
-                    }
-                });
-
-                // Process a successful bet
-                function processSuccessfulBet() {
-                    bets[selectedSquare]++;
-                    document.querySelector(`.square[data-number="${selectedSquare}"] .bet-count`).textContent = bets[selectedSquare];
-                    status.textContent = `Bet placed on ${selectedSquare < 10 ? `0${selectedSquare}` : selectedSquare}!`;
-                    confirmButton.disabled = true;
-                    
-                    logDebug(`Bet of 1 Pi placed on square ${selectedSquare} by user ${user.username}`);
-                }
-
-                // Simulate daily result
-                function updateResult() {
-                    const mockWinningNumber = Math.floor(Math.random() * 100);
-                    winningNumberDisplay.textContent = `Winning Square: ${mockWinningNumber < 10 ? `0${mockWinningNumber}` : mockWinningNumber}`;
-                }
-                
-                // Show a mock result after 2 seconds
-                setTimeout(updateResult, 2000);
-                
-            } catch (error) {
-                logDebug("Critical error during initialization: " + error.message);
-                status.textContent = "Error initializing the game. Please reload the page.";
-            }
+        // Confirm bet
+        confirmButton.addEventListener('click', () => {
+            if (selectedSquare === null) return;
+            bets[selectedSquare]++;
+            document.querySelector(`.square[data-number="${selectedSquare}"] .bet-count`).textContent = bets[selectedSquare];
+            status.textContent = `Bet placed on ${selectedSquare < 10 ? `0${selectedSquare}` : selectedSquare}!`;
+            console.log(`Bet of 1 Pi placed on ${selectedSquare} - Pi SDK TBD`);
+            confirmButton.disabled = true;
+            // Future: Call Pi SDK payment here
         });
+
+        // Simulate daily result (mock for now)
+        function updateResult() {
+            const mockWinningNumber = Math.floor(Math.random() * 100); // Replace with blockchain data later
+            winningNumberDisplay.textContent = `Winning Square: ${mockWinningNumber < 10 ? `0${mockWinningNumber}` : mockWinningNumber}`;
+        }
+        setTimeout(updateResult, 2000); // Mock result after 2 seconds
     </script>
 </body>
 </html>
